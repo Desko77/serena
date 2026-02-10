@@ -392,6 +392,9 @@ class SerenaConfig(ToolInclusionDefinition, ToStringMixin):
         """
         :return: the location where the Serena configuration file is stored/should be stored
         """
+        env_path = os.environ.get("SERENA_CONFIG_PATH")
+        if env_path and os.path.exists(env_path):
+            return env_path
         if is_running_in_docker():
             return os.path.join(REPO_ROOT, cls.CONFIG_FILE_DOCKER)
         else:
@@ -587,3 +590,28 @@ class SerenaConfig(ToolInclusionDefinition, ToStringMixin):
         # we also canonicalize them before saving
         loaded_original_yaml["projects"] = sorted({str(project.project_root) for project in self.projects})
         save_yaml(self.config_file_path, loaded_original_yaml, preserve_comments=True)
+
+    def get_project_paths(self) -> list[str]:
+        """Return sorted list of absolute paths to all registered projects."""
+        return self.project_paths
+
+    @staticmethod
+    def discover_projects_in_directory(base_dir: str) -> list[str]:
+        """Scan base_dir for subdirectories containing .serena/project.yml.
+
+        :param base_dir: directory to scan (non-recursive, only immediate children)
+        :return: list of absolute paths to project roots
+        """
+        discovered: list[str] = []
+        base = Path(base_dir).resolve()
+        if not base.is_dir():
+            log.warning("Projects directory does not exist: %s", base_dir)
+            return discovered
+
+        for entry in sorted(base.iterdir()):
+            if entry.is_dir():
+                project_yml = entry / ProjectConfig.rel_path_to_project_yml()
+                if project_yml.exists():
+                    discovered.append(str(entry))
+                    log.info("Discovered project: %s", entry)
+        return discovered

@@ -41,6 +41,31 @@ ENV PATH="${PATH}:/root/.local/bin"
 # Install the latest version of uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
+# Install Java JDK (for Eclipse JDTLS, Kotlin LS)
+ENV JAVA_VERSION=21
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openjdk-${JAVA_VERSION}-jdk-headless \
+    && rm -rf /var/lib/apt/lists/*
+ENV JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-openjdk-amd64
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# Install .NET SDK (for C# language server)
+ENV DOTNET_VERSION=8.0
+RUN apt-get update && apt-get install -y --no-install-recommends libicu-dev && rm -rf /var/lib/apt/lists/*
+RUN curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin \
+    --channel ${DOTNET_VERSION} \
+    --install-dir /usr/share/dotnet \
+    && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet
+ENV DOTNET_ROOT=/usr/share/dotnet
+ENV PATH="${PATH}:${DOTNET_ROOT}"
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
+
+# Install Go (for gopls)
+ENV GO_VERSION=1.23.6
+RUN curl -sSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C /usr/local -xzf -
+ENV PATH="${PATH}:/usr/local/go/bin:/root/go/bin"
+ENV GOPATH=/root/go
+
 # Install Rust and rustup for rust-analyzer support (minimal profile)
 ENV RUSTUP_HOME=/usr/local/rustup
 ENV CARGO_HOME=/usr/local/cargo
@@ -64,8 +89,8 @@ RUN . .venv/bin/activate
 RUN uv pip install --all-extras -r pyproject.toml -e .
 ENV PATH="/workspaces/serena/.venv/bin:${PATH}"
 
-# Entrypoint to ensure environment is activated
-ENTRYPOINT ["/bin/bash", "-c", "source .venv/bin/activate && $0 $@"]
+RUN chmod +x /workspaces/serena/docker-entrypoint.sh
+ENTRYPOINT ["/workspaces/serena/docker-entrypoint.sh"]
 
 # Production target
 FROM base AS production
@@ -73,6 +98,8 @@ FROM base AS production
 COPY pyproject.toml /workspaces/serena/
 COPY README.md /workspaces/serena/
 COPY src/ /workspaces/serena/src/
+COPY docker-entrypoint.sh /workspaces/serena/
+RUN chmod +x /workspaces/serena/docker-entrypoint.sh
 
 # Create virtual environment and install dependencies (production only)
 RUN uv venv
@@ -80,6 +107,5 @@ RUN . .venv/bin/activate
 RUN uv pip install -r pyproject.toml -e .
 ENV PATH="/workspaces/serena/.venv/bin:${PATH}"
 
-# Entrypoint to ensure environment is activated
-ENTRYPOINT ["/bin/bash", "-c", "source .venv/bin/activate && $0 $@"]
+ENTRYPOINT ["/workspaces/serena/docker-entrypoint.sh"]
 

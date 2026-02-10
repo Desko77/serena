@@ -45,6 +45,145 @@ class RestartLanguageServerTool(Tool, ToolMarkerOptional):
         return SUCCESS_RESULT
 
 
+class DiagnosticsTool(Tool, ToolMarkerSymbolicRead):
+    """Retrieves diagnostics (errors, warnings) for a file from the language server."""
+
+    def apply(self, relative_path: str, max_answer_chars: int = -1) -> str:
+        """
+        Retrieves diagnostics (errors, warnings, information, hints) for a file from the language server.
+
+        :param relative_path: the relative path to the file to get diagnostics for
+        :param max_answer_chars: if the result is longer than this number of characters,
+            no content will be returned. -1 means the default value from the config will be used.
+        :return: a JSON list of diagnostics with severity, message, range, and code
+        """
+        self.project.validate_relative_path(relative_path)
+        ls_manager = self.agent.get_language_server_manager()
+        if ls_manager is None:
+            return self._to_json({"error": "Language server manager is not available"})
+        language_server = ls_manager.get_language_server(relative_path)
+
+        severity_map = {1: "Error", 2: "Warning", 3: "Information", 4: "Hint"}
+
+        try:
+            diagnostics = language_server.request_text_document_diagnostics(relative_path)
+        except Exception as e:
+            return self._to_json({"error": f"Language server does not support pull diagnostics or an error occurred: {e}"})
+
+        result = []
+        for diag in diagnostics:
+            entry: dict[str, Any] = {
+                "message": diag.get("message", ""),
+                "severity": severity_map.get(diag.get("severity", 0), "Unknown"),
+                "range": diag.get("range"),
+            }
+            code = diag.get("code")
+            if code is not None:
+                entry["code"] = code
+            result.append(entry)
+
+        result_json = self._to_json(result)
+        return self._limit_length(result_json, max_answer_chars)
+
+
+class TypeHierarchyTool(Tool, ToolMarkerSymbolicRead):
+    """Retrieves type hierarchy (supertypes/subtypes) for a class or interface."""
+
+    def apply(
+        self,
+        name_path: str,
+        relative_path: str,
+        direction: str = "both",
+        max_depth: int = 3,
+        max_answer_chars: int = -1,
+    ) -> str:
+        """
+        Retrieves type hierarchy (supertypes/subtypes) for a class or interface.
+
+        :param name_path: name path of the symbol (same logic as in find_symbol)
+        :param relative_path: the relative path to the file containing the symbol
+        :param direction: "supertypes", "subtypes", or "both"
+        :param max_depth: maximum recursion depth for hierarchy traversal (default 3)
+        :param max_answer_chars: max characters for the JSON result. -1 means the default.
+        :return: a JSON object with supertypes and/or subtypes hierarchy
+        """
+        self.project.validate_relative_path(relative_path)
+        symbol_retriever = self.create_language_server_symbol_retriever()
+        ls_manager = self.agent.get_language_server_manager()
+        if ls_manager is None:
+            return self._to_json({"error": "Language server manager is not available"})
+        language_server = ls_manager.get_language_server(relative_path)
+
+        # Find the symbol to get its position
+        symbols = symbol_retriever.find_by_name(name_path, within_relative_path=relative_path)
+        if not symbols:
+            return self._to_json({"error": f"Symbol '{name_path}' not found in {relative_path}"})
+
+        symbol = symbols[0]
+        location = symbol.location
+        if location is None or location.line is None or location.column is None:
+            return self._to_json({"error": f"Symbol '{name_path}' has no location information"})
+
+        line = location.line
+        character = location.column
+
+        try:
+            items = language_server.request_prepare_type_hierarchy(relative_path, line, character)
+        except Exception as e:
+            return self._to_json({"error": f"Language server does not support type hierarchy: {e}"})
+
+        if not items:
+            return self._to_json({"error": f"No type hierarchy found for '{name_path}'"})
+
+        result: dict[str, Any] = {"symbol": name_path, "file": relative_path}
+
+        def _convert_item(item: dict[str, Any]) -> dict[str, Any]:
+            converted: dict[str, Any] = {"name": item.get("name", ""), "kind": item.get("kind", 0)}
+            uri = item.get("uri", "")
+            if uri:
+                from solidlsp.ls_utils import PathUtils
+
+                try:
+                    abs_path = PathUtils.uri_to_path(uri)
+                    rel_path = PathUtils.get_relative_path(abs_path, language_server.repository_root_path)
+                    if rel_path is not None:
+                        converted["relative_path"] = rel_path
+                    else:
+                        converted["uri"] = uri
+                except Exception:
+                    converted["uri"] = uri
+            return converted
+
+        def _collect_hierarchy(item: dict[str, Any], get_fn: Any, depth: int) -> list[dict[str, Any]]:
+            if depth <= 0:
+                return []
+            try:
+                related = get_fn({"item": item})
+            except Exception:
+                return []
+            if not related:
+                return []
+            hierarchy = []
+            for rel_item in related:
+                entry = _convert_item(rel_item)
+                children = _collect_hierarchy(rel_item, get_fn, depth - 1)
+                if children:
+                    entry["children"] = children
+                hierarchy.append(entry)
+            return hierarchy
+
+        item = items[0]
+
+        if direction in ("supertypes", "both"):
+            result["supertypes"] = _collect_hierarchy(item, language_server.request_type_hierarchy_supertypes, max_depth)
+
+        if direction in ("subtypes", "both"):
+            result["subtypes"] = _collect_hierarchy(item, language_server.request_type_hierarchy_subtypes, max_depth)
+
+        result_json = self._to_json(result)
+        return self._limit_length(result_json, max_answer_chars)
+
+
 class GetSymbolsOverviewTool(Tool, ToolMarkerSymbolicRead):
     """
     Gets an overview of the top-level symbols defined in a given file.

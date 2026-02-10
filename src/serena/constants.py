@@ -23,6 +23,7 @@ USER_MODE_YAMLS_DIR = str(_serena_in_home_managed_dir / "modes")
 INTERNAL_MODE_YAMLS_DIR = str(_serena_pkg_path / "resources" / "config" / "internal_modes")
 """Internal modes, never overridden by user modes."""
 SERENA_DASHBOARD_DIR = str(_serena_pkg_path / "resources" / "dashboard")
+SERENA_ADMIN_DIR = str(_serena_pkg_path / "resources" / "admin")
 SERENA_ICON_DIR = str(_serena_pkg_path / "resources" / "icons")
 
 DEFAULT_SOURCE_FILE_ENCODING = "utf-8"
@@ -35,5 +36,7 @@ SERENA_FILE_ENCODING = "utf-8"
 
 PROJECT_TEMPLATE_FILE = str(_serena_pkg_path / "resources" / "project.template.yml")
 SERENA_CONFIG_TEMPLATE_FILE = str(_serena_pkg_path / "resources" / "serena_config.template.yml")
+DOCKER_CONFIG_TEMPLATE_FILE = str(_serena_pkg_path / "resources" / "docker.template.yml")
+DOCKER_CONFIG_DEFAULT_PATH = str(_serena_in_home_managed_dir / "docker.yml")
 
 SERENA_LOG_FORMAT = "%(levelname)-5s %(asctime)-15s [%(threadName)s] %(name)s:%(funcName)s:%(lineno)d - %(message)s"

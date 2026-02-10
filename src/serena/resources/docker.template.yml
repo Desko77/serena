@@ -1,0 +1,34 @@
+# Serena Docker Configuration
+# ============================
+# List project directories on the host to mount into the Docker container.
+# Each path is mounted as /projects/<basename> (read-write) inside the container.
+#
+# Usage:
+#   1. Edit this file: add your project paths under 'projects:'
+#   2. Generate compose: serena docker generate-compose
+#   3. Start container:  docker compose up -d
+#   4. Open admin panel:  http://localhost:9000
+
+projects:
+  # Uncomment and edit the paths below:
+  # - C:\Projects\my-erp-project
+  # - /home/user/my-python-project
+  # - /home/user/my_project
+
+docker:
+  # Docker image (uncomment to use a pre-built image instead of building locally)
+  # image: serena:latest
+  build_context: .                  # Path to Dockerfile directory
+  build_target: production          # Docker build target stage
+
+  # Network ports
+  admin_port: 9000                  # Admin web UI port (0 = disabled)
+  base_port: 9200                   # Starting port for project MCP servers
+  port_headroom: 5                  # Extra ports beyond project count for runtime adds
+
+  # Server settings
+  transport: streamable-http        # "sse" or "streamable-http"
+  host: "0.0.0.0"                   # Bind address inside container
+
+  # Container storage
+  serena_data_volume: serena-data   # Named volume for /root/.serena (config, language servers)

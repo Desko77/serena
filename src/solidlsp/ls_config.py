@@ -45,6 +45,7 @@ class Language(str, Enum):
     R = "r"
     PERL = "perl"
     CLOJURE = "clojure"
+    BSL = "bsl"  # OneC / 1C
     ELIXIR = "elixir"
     ELM = "elm"
     TERRAFORM = "terraform"
@@ -136,6 +137,9 @@ class Language(str, Enum):
                 return FilenameMatcher("*.pl", "*.pm", "*.t")
             case self.CLOJURE:
                 return FilenameMatcher("*.clj", "*.cljs", "*.cljc", "*.edn")  # codespell:ignore edn
+            case self.BSL:
+                # 1C-repos in text form typically *.bsl, sometimes OneScript *.os
+                return FilenameMatcher("*.bsl", "*.os")
             case self.ELIXIR:
                 return FilenameMatcher("*.ex", "*.exs")
             case self.ELM:
@@ -177,6 +181,10 @@ class Language(str, Enum):
 
     def get_ls_class(self) -> type["SolidLanguageServer"]:
         match self:
+            case self.BSL:
+                from solidlsp.language_servers.bsl_language_server import BslLanguageServer
+
+                return BslLanguageServer
             case self.PYTHON:
                 from solidlsp.language_servers.pyright_server import PyrightServer
 

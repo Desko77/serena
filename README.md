@@ -3,170 +3,291 @@
   <img src="resources/serena-logo-dark-mode.svg#gh-dark-mode-only" style="width:500px">
 </p>
 
+# Serena (Desko77 Fork)
+
+> Fork of [oraios/serena](https://github.com/oraios/serena) with extended BSL (1C:Enterprise) support, new agent tools, and Docker-ready deployment.
+
 * :rocket: Serena is a powerful **coding agent toolkit** capable of turning an LLM into a fully-featured agent that works **directly on your codebase**.
   Unlike most other tools, it is not tied to an LLM, framework or an interface, making it easy to use it in a variety of ways.
 * :wrench: Serena provides essential **semantic code retrieval and editing tools** that are akin to an IDE's capabilities, extracting code entities at the symbol level and exploiting relational structure. When combined with an existing coding agent, these tools greatly enhance (token) efficiency.
 * :free: Serena is **free & open-source**, enhancing the capabilities of LLMs you already have access to free of charge.
 
-You can think of Serena as providing IDE-like tools to your LLM/coding agent. 
-With it, the agent no longer needs to read entire files, perform grep-like searches or basic string replacements to find the right parts of the code and to edit code. 
-Instead, it can use code-centric tools like `find_symbol`, `find_referencing_symbols` and `insert_after_symbol`.
+## What's New in This Fork
 
-<p align="center">
-  <em>Serena is under active development! See the latest updates, upcoming features, and lessons learned to stay up to date.</em>
-</p>
+### BSL (1C:Enterprise) Local Cache Mode
 
-<p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Updates-1e293b?style=flat&logo=rss&logoColor=white&labelColor=1e293b" alt="Changelog" /></a>
-  <a href="roadmap.md"><img src="https://img.shields.io/badge/Roadmap-14532d?style=flat&logo=target&logoColor=white&labelColor=14532d" alt="Roadmap" /></a>
-  <a href="lessons_learned.md"><img src="https://img.shields.io/badge/Lessons-Learned-7c4700?style=flat&logo=readthedocs&logoColor=white&labelColor=7c4700" alt="Lessons Learned" /></a>
-</p>
+Full rewrite of the BSL language server — from a thin wrapper around Java `bsl-language-server.jar` to a **pure Python local cache mode** that requires no external dependencies:
+
+| Component | Description |
+|-----------|-------------|
+| `bsl_parser.py` | Regex-based parser extracting procedures, functions, module variables, and call positions from BSL code |
+| `bsl_cache.py` | Thread-safe in-memory symbol cache with indexed lookups (by name, module, export status) |
+| `bsl_language_server.py` | Complete local cache mode: parallel indexing via `ThreadPoolExecutor`, fingerprint-based (MD5) cache invalidation, call graph for references and rename |
+
+**Key advantages over the original:**
+- No Java dependency — pure Python implementation
+- Parallel file indexing (up to 500 workers, 30s timeout per file)
+- Fingerprint system for incremental re-indexing (only changed files are re-parsed)
+- Pickle-persistent `DocumentSymbols` cache between sessions
+- Full call graph: find references and rename across the entire project
+- Thread-safe cache operations via `threading.Lock`
+
+### New Agent Tools
+
+| Tool | Description |
+|------|-------------|
+| **DiagnosticsTool** | Retrieves LSP diagnostics (errors, warnings, information, hints) for any file. Converts severity codes to human-readable labels. |
+| **TypeHierarchyTool** | Recursive traversal of type hierarchy (supertypes/subtypes) for classes and interfaces. Configurable direction and depth. |
+
+Both tools are auto-discovered by `ToolRegistry` and available to all MCP clients.
+
+### Type Hierarchy LSP Methods
+
+Three new methods in `SolidLanguageServer`:
+- `request_prepare_type_hierarchy(file, line, character)` — initiates type hierarchy at a position
+- `request_type_hierarchy_supertypes(item)` — resolves parent types
+- `request_type_hierarchy_subtypes(item)` — resolves child types
+
+### Admin Panel
+
+Web-based admin UI for managing multiple Serena instances running in Docker:
+
+- Real-time server list with status, port, transport, PID, memory, uptime
+- System stats: RAM usage bar, CPU count, load average
+- Per-project actions: Stop / Start / Restart / Logs / Stats / Remove
+- Add projects from dropdown (auto-discovers mounted directories)
+- BSL cache statistics preservation across restarts
+
+Access at `http://localhost:9000` when `SERENA_ADMIN_PORT=9000` is set.
+
+### Docker Compose Generator
+
+CLI tool to generate `docker-compose.yml` with **per-project bind mounts** (rw) from a config file — no more mounting entire disks:
+
+```bash
+# 1. Create config
+serena docker init-config          # creates ~/.serena/docker.yml
+
+# 2. Edit config — add your project paths
+#    ~/.serena/docker.yml:
+#    projects:
+#      - C:\Projets
+#      - /home/user/my-project
+
+# 3. Generate docker-compose.yml
+serena docker generate-compose     # outputs docker-compose.yml
+
+# 4. Start
+docker compose up -d
+```
+
+Each project path is mounted as `/projects/<basename>` (read-write) inside the container. Cyrillic directory names are automatically transliterated to ASCII for container paths.
+
+### Docker-Ready Deployment
+
+The Dockerfile includes all major runtimes for full language server support:
+
+| Runtime | Version | Supports |
+|---------|---------|----------|
+| Python | 3.11 | Pyright, Jedi |
+| Node.js | 22.x | TypeScript LS, Bash LS, Intelephense (PHP) |
+| Java JDK | 21 | Eclipse JDTLS (Java), Kotlin LS |
+| .NET SDK | 8.0 | CSharpLanguageServer, OmniSharp |
+| Go | 1.23.x | gopls |
+| Rust | stable | rust-analyzer |
+
+## Supported Languages (36)
+
+| Language | Server | Language | Server |
+|----------|--------|----------|--------|
+| AL | AL LS | Lua | lua-language-server |
+| Bash | bash-language-server | Markdown | Marksman |
+| **BSL (1C)** | **Local Cache (Python)** | Nix | nixd |
+| C# | MS CodeAnalysis / OmniSharp | Perl | PerlNavigator |
+| C/C++ | clangd | PHP | Intelephense |
+| Clojure | clojure-lsp | Python | Pyright / Jedi |
+| Dart | Dart LS | R | R language server |
+| Elixir | ElixirLS | Rego | Regal |
+| Elm | elm-language-server | Ruby | ruby-lsp / Solargraph |
+| Erlang | erlang_ls | Rust | rust-analyzer |
+| Fortran | fortls | Scala | Metals |
+| Go | gopls | Swift | SourceKit-LSP |
+| Haskell | HLS | Terraform | terraform-ls |
+| Java | Eclipse JDT LS | TypeScript/JS | TypeScript LS / VTS |
+| Julia | Julia LS | YAML | yaml-language-server |
+| Kotlin | Kotlin LS | Zig | ZLS |
 
 ## LLM Integration
 
-Serena provides the necessary [tools](https://oraios.github.io/serena/01-about/035_tools.html) for coding workflows, but an LLM is required to do the actual work,
-orchestrating tool use.
+Serena can be integrated with an LLM in several ways:
 
-In general, Serena can be integrated with an LLM in several ways:
-
-* by using the **model context protocol (MCP)**.
-  Serena provides an MCP server which integrates with
-    * Claude Code and Claude Desktop,
-    * terminal-based clients like Codex, Gemini-CLI, Qwen3-Coder, rovodev, OpenHands CLI and others,
-    * IDEs like VSCode, Cursor or IntelliJ,
-    * Extensions like Cline or Roo Code
-    * Local clients like [OpenWebUI](https://docs.openwebui.com/openapi-servers/mcp), [Jan](https://jan.ai/docs/mcp-examples/browser/browserbase#enable-mcp), [Agno](https://docs.agno.com/introduction/playground) and others
-* by using [mcpo to connect it to ChatGPT](docs/03-special-guides/serena_on_chatgpt.md) or other clients that don't support MCP but do support tool calling via OpenAPI.
-* by incorporating Serena's tools into an agent framework of your choice, as illustrated [here](docs/03-special-guides/custom_agent.md).
-  Serena's tool implementation is decoupled from the framework-specific code and can thus easily be adapted to any agent framework.
-
-## Serena in Action
-
-#### Demonstration 1: Efficient Operation in Claude Code
-
-A demonstration of Serena efficiently retrieving and editing code within Claude Code, thereby saving tokens and time. Efficient operations are not only useful for saving costs, but also for generally improving the generated code's quality. This effect may be less pronounced in very small projects, but often becomes of crucial importance in larger ones.
-
-https://github.com/user-attachments/assets/ab78ebe0-f77d-43cc-879a-cc399efefd87
-
-#### Demonstration 2: Serena in Claude Desktop
-
-A demonstration of Serena implementing a small feature for itself (a better log GUI) with Claude Desktop.
-Note how Serena's tools enable Claude to find and edit the right symbols.
-
-https://github.com/user-attachments/assets/6eaa9aa1-610d-4723-a2d6-bf1e487ba753
-
-### Programming Language Support & Semantic Analysis Capabilities
-
-Serena's semantic code analysis capabilities build on **language servers** using the widely implemented
-language server protocol (LSP). The LSP provides a set of versatile code querying
-and editing functionalities based on symbolic understanding of the code.
-Equipped with these capabilities, Serena discovers and edits code just like a seasoned developer
-making use of an IDE's capabilities would.
-Serena can efficiently find the right context and do the right thing even in very large and
-complex projects! So not only is it free and open-source, it frequently achieves better results
-than existing solutions that charge a premium.
-
-Language servers provide support for a wide range of programming languages.
-With Serena's LSP library, we provide **support for over 30 programming languages**, including
-AL, Bash, C#, C/C++, Clojure, Dart, Elixir, Elm, Erlang, Fortran, Go, Haskell, Java, Javascript, Julia, Kotlin, Lua, Markdown, Nix, Perl, PHP, Python, R, Ruby, Rust, Scala, Swift, TypeScript, YAML and Zig.
-
-> [!IMPORTANT]
-> Some languages require additional dependencies to be installed; see the [Language Support](https://oraios.github.io/serena/01-about/020_programming-languages.html) page for details.
+* **MCP (Model Context Protocol)** — integrates with Claude Code, Claude Desktop, Cursor, VSCode, Cline, Roo Code, Codex, Gemini-CLI, and others
+* **OpenAPI** via [mcpo](docs/03-special-guides/serena_on_chatgpt.md) — connects to ChatGPT and other clients
+* **Custom agent frameworks** — Serena's tool implementation is decoupled from framework-specific code
 
 ## Quick Start
 
-**Prerequisites**. Serena is managed by *uv*. If you don’t already have it, you need to [install uv](https://docs.astral.sh/uv/getting-started/installation/) before proceeding.
-
-**Starting the MCP Server**. The easiest way to start the Serena MCP server is by running the latest version from GitHub using uvx.
-Issue this command to see available options:
+**Prerequisites**: Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```bash
-uvx --from git+https://github.com/oraios/serena serena start-mcp-server --help
+# Clone this fork
+git clone https://github.com/Desko77/serena.git
+cd serena
+
+# Run MCP server
+uvx --from . serena start-mcp-server --help
 ```
 
-**Configuring Your Client**. To connect Serena to your preferred MCP client, you typically need to [configure a launch command in your client](https://oraios.github.io/serena/02-usage/030_clients.html).
-Follow the link for specific instructions on how to set up Serena for Claude Code, Codex, Claude Desktop, MCP-enabled IDEs and other clients (such as local and web-based GUIs). 
+**Docker (recommended):**
 
-> [!TIP]
-> While getting started quickly is easy, Serena is a powerful toolkit with many configuration options.
-> We highly recommend reading through the [user guide](https://oraios.github.io/serena/02-usage/000_intro.html) to get the most out of Serena.
-> 
-> Specifically, we recommend to read about ...
->   * [Serena's project-based workflow](https://oraios.github.io/serena/02-usage/040_workflow.html) and
->   * [configuring Serena](https://oraios.github.io/serena/02-usage/050_configuration.html).
+```bash
+# 1. Init config and add your project paths
+serena docker init-config
+# Edit ~/.serena/docker.yml — add paths under 'projects:'
 
-## User Guide
+# 2. Generate docker-compose.yml with per-project mounts
+serena docker generate-compose
 
-Please refer to the [user guide](https://oraios.github.io/serena/02-usage/000_intro.html) for detailed instructions on how to use Serena effectively.
+# 3. Start
+docker compose up -d
 
-## Community Feedback
+# Admin panel at http://localhost:9000
+# Projects at http://localhost:9200, :9201, ...
+```
 
-Most users report that Serena has strong positive effects on the results of their coding agents, even when used within
-very capable agents like Claude Code. Serena is often described to be a [game changer](https://www.reddit.com/r/ClaudeAI/comments/1lfsdll/try_out_serena_mcp_thank_me_later/), providing an enormous [productivity boost](https://www.reddit.com/r/ClaudeCode/comments/1mguoia/absolutely_insane_improvement_of_claude_code).
+**Docker (manual):**
 
-Serena excels at navigating and manipulating complex codebases, providing tools that support precise code retrieval and editing in the presence of large, strongly structured codebases.
-However, when dealing with tasks that involve only very few/small files, you may not benefit from including Serena on top of your existing coding agent.
-In particular, when writing code from scratch, Serena will not provide much value initially, as the more complex structures that Serena handles more gracefully than simplistic, file-based approaches are yet to be created.
+```bash
+docker build --target production -t serena .
+docker run -v /path/to/project:/projects/my-project serena \
+  "serena start-mcp-server --project /projects/my-project --transport stdio"
+```
 
-Several videos and blog posts have talked about Serena:
+## Running Multiple Projects
 
-* YouTube:
-    * [AI Labs](https://www.youtube.com/watch?v=wYWyJNs1HVk&t=1s)
-    * [Yo Van Eyck](https://www.youtube.com/watch?v=UqfxuQKuMo8&t=45s)
-    * [JeredBlu](https://www.youtube.com/watch?v=fzPnM3ySmjE&t=32s)
+Serena supports parallel work with multiple projects via process-level isolation — each project runs as its own MCP server process with auto-restart.
 
-* Blog posts:
-    * [Serena's Design Principles](https://medium.com/@souradip1000/deconstructing-serenas-mcp-powered-semantic-code-understanding-architecture-75802515d116)
-    * [Serena with Claude Code (in Japanese)](https://blog.lai.so/serena/)
-    * [Turning Claude Code into a Development Powerhouse](https://robertmarshall.dev/blog/turning-claude-code-into-a-development-powerhouse/)
+### stdio mode (Claude Code / Cursor)
+
+Each MCP client connects to its own `docker exec` session:
+
+```bash
+docker compose up -d
+
+# In your MCP client config, add per project:
+# "command": "docker", "args": ["exec", "-i", "serena-multi", "serena-mcp-server", "--project", "/projects/my-project"]
+```
+
+### HTTP mode — SSE or streamable-http (web clients, parallel access)
+
+All projects start automatically on sequential ports:
+
+```bash
+# Using generated compose (recommended):
+serena docker generate-compose
+docker compose up -d
+
+# Or manually with env vars:
+SERENA_MULTI_SERVER=1 SERENA_TRANSPORT=streamable-http docker compose up -d
+
+# Projects available at localhost:9200, :9201, ...
+# Admin panel at localhost:9000
+```
+
+### Multi-server CLI
+
+```bash
+# Start multi-server locally (without Docker)
+serena start-multi-server --transport sse --base-port 9200 --projects-dir /path/to/projects
+
+# Manage individual servers
+serena multi-server status                    # table: project | port | status | pid | uptime
+serena multi-server stop <project_name>       # stop a specific project
+serena multi-server start <project_name>      # start a previously stopped project
+serena multi-server restart <project_name>    # restart a project
+```
+
+### Docker Compose Generator CLI
+
+```bash
+serena docker init-config                     # create ~/.serena/docker.yml template
+serena docker generate-compose                # generate docker-compose.yml from config
+serena docker generate-compose --dry-run      # preview without writing
+serena docker generate-compose --config /path/to/config.yml --output /path/to/output.yml
+```
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SERENA_MULTI_SERVER` | `0` | Set to `1` to enable HTTP multi-server mode |
+| `SERENA_TRANSPORT` | `sse` | `sse` or `streamable-http` |
+| `SERENA_PROJECTS_DIR` | — | Directory containing project subdirectories |
+| `SERENA_BASE_PORT` | `9200` | Starting port (each project gets +1) |
+| `SERENA_HOST` | `0.0.0.0` | Bind address |
+| `SERENA_ADMIN_PORT` | — | Admin API port (disabled by default) |
+| `SERENA_CONFIG_PATH` | — | Override path to `serena_config.yml` |
+
+## Development
+
+```bash
+# Install dependencies
+uv sync --extra dev
+
+# Format code
+uv run poe format
+
+# Type-check
+uv run poe type-check
+
+# Run tests (excludes rust and erlang by default)
+uv run poe test
+
+# Run specific language tests
+uv run poe test -m "python or go"
+```
+
+### Project Structure
+
+```
+src/
+├── serena/                    # Agent framework, tools, MCP server, CLI
+│   ├── tools/                 # MCP tools
+│   │   ├── file_tools.py      #   File operations, search, regex
+│   │   ├── symbol_tools.py    #   Symbol finding, diagnostics, type hierarchy
+│   │   ├── memory_tools.py    #   Project knowledge persistence
+│   │   ├── config_tools.py    #   Project activation, mode switching
+│   │   ├── workflow_tools.py  #   Onboarding and meta-operations
+│   │   └── cmd_tools.py       #   Shell command execution
+│   ├── config/                # Configuration (contexts, modes, projects)
+│   ├── resources/
+│   │   ├── admin/admin.html   # Admin panel web UI (single-file)
+│   │   └── docker.template.yml # Docker config template
+│   ├── mcp.py                 # MCP server implementation
+│   ├── multi_server.py        # Multi-project process manager + admin API
+│   ├── docker_compose.py      # Docker Compose generator from config
+│   ├── agent.py               # Main SerenaAgent class
+│   └── cli.py                 # CLI entry points (+ docker subcommands)
+├── solidlsp/                  # LSP wrapper library
+│   ├── language_servers/      # 30+ language server implementations
+│   │   ├── bsl_language_server.py  # BSL with local cache mode
+│   │   ├── pyright_server.py       # Python (Pyright)
+│   │   ├── eclipse_jdtls.py        # Java
+│   │   └── ...
+│   ├── bsl_parser.py          # BSL regex parser
+│   ├── bsl_cache.py           # BSL in-memory cache
+│   ├── ls.py                  # SolidLanguageServer (+ type hierarchy)
+│   └── ls_config.py           # Language enum and config
+└── interprompt/               # Multi-language prompt templates
+```
 
 ## Acknowledgements
 
-### Sponsors
+This is a fork of [oraios/serena](https://github.com/oraios/serena). All credit to the original authors and the open-source community.
 
-We are very grateful to our [sponsors](https://github.com/sponsors/oraios) who help us drive Serena's development. The core team
-(the founders of [Oraios AI](https://oraios-ai.de/)) put in a lot of work in order to turn Serena into a useful open source project. 
-So far, there is no business model behind this project, and sponsors are our only source of income from it.
-
-Sponsors help us dedicating more time to the project, managing contributions, and working on larger features (like better tooling based on more advanced
-LSP features, VSCode integration, debugging via the DAP, and several others).
-If you find this project useful to your work, or would like to accelerate the development of Serena, consider becoming a sponsor.
-
-We are proud to announce that the Visual Studio Code team, together with Microsoft’s Open Source Programs Office and GitHub Open Source
-have decided to sponsor Serena with a one-time contribution!
-
-<p align="center">
-  <img src="resources/vscode_sponsor_logo.png" alt="Visual Studio Code sponsor logo" width="220">
-</p>
-
-### Community Contributions
-
-A significant part of Serena, especially support for various languages, was contributed by the open source community.
-We are very grateful for the many contributors who made this possible and who played an important role in making Serena
-what it is today.
-
-### Technologies
-We built Serena on top of multiple existing open-source technologies, the most important ones being:
-
-1. [multilspy](https://github.com/microsoft/multilspy).
-   A library which wraps language server implementations and adapts them for interaction via Python.
-   It provided the basis for our library Solid-LSP (`src/solidlsp`).
-   Solid-LSP provides pure synchronous LSP calls and extends the original library with the symbolic logic
-   that Serena required.
+**Upstream technologies:**
+1. [multilspy](https://github.com/microsoft/multilspy) — the basis for Solid-LSP
 2. [Python MCP SDK](https://github.com/modelcontextprotocol/python-sdk)
-3. All the language servers that we use through Solid-LSP.
+3. All language servers used through Solid-LSP
 
-Without these projects, Serena would not have been possible (or would have been significantly more difficult to build).
-
-## Customizing and Extending Serena
-
-It is straightforward to extend Serena's AI functionality with your own ideas.
-Simply implement a new tool by subclassing
-`serena.agent.Tool` and implement the `apply` method with a signature
-that matches the tool's requirements.
-Once implemented, `SerenaAgent` will automatically have access to the new tool.
-
-It is also relatively straightforward to add [support for a new programming language](/.serena/memories/adding_new_language_support_guide.md).
-
-We look forward to seeing what the community will come up with!
-For details on contributing, see [contributing guidelines](/CONTRIBUTING.md).
+BSL local cache mode was ported and improved from the [asweetand-a11y/serena](https://github.com/asweetand-a11y/serena) fork.

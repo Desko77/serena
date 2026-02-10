@@ -197,8 +197,10 @@ pylint.html
 .pylint.d
 
 # Serena-specific
+.serena/
 /*.yml
 !*.template.yml
+!docker-compose.example.yml
 /agent-ui
 /test/**/.serena
 
@@ -217,6 +219,12 @@ tmp/
 
 # Claude settings
 .claude/settings.local.json
+
+# Temp/test artifacts
+nul
+stats_test.json
+test_api.json
+test_stats.json
 
 # Elixir
 /test/resources/repos/elixir/test_repo/deps

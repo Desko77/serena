@@ -264,6 +264,8 @@ max-complexity = 20
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["D103"]
 "scripts/**" = ["D103"]
+"src/solidlsp/bsl_*.py" = ["RUF001"]
+"src/solidlsp/language_servers/bsl_*.py" = ["RUF001"]
 
 [tool.pytest.ini_options]
 addopts = "--snapshot-patch-pycharm-diff"

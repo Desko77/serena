@@ -1,0 +1,33 @@
+services:
+  serena:
+    build:
+      context: .
+      target: production
+    volumes:
+      # Mount your projects here:
+      # - /path/to/project1:/projects/project1
+      # - /path/to/project2:/projects/project2
+      - serena-data:/root/.serena
+    environment:
+      # Set to 1 for HTTP multi-server mode (SSE or streamable-http)
+      - SERENA_MULTI_SERVER=0
+      # Transport: "sse" or "streamable-http"
+      - SERENA_TRANSPORT=sse
+      # Directory containing project subdirectories
+      - SERENA_PROJECTS_DIR=/projects
+      # Starting port for multi-server mode
+      - SERENA_BASE_PORT=9200
+      # Bind address
+      - SERENA_HOST=0.0.0.0
+      # Admin web UI port (0 = disabled)
+      - SERENA_ADMIN_PORT=9000
+    ports:
+      # SSE/HTTP ports for multi-server mode
+      - "9200-9210:9200-9210"
+      # Admin web UI
+      - "9000:9000"
+    stdin_open: true
+    tty: true
+
+volumes:
+  serena-data:

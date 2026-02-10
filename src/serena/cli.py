@@ -21,6 +21,7 @@ from serena.config.serena_config import ProjectConfig, SerenaConfig, SerenaPaths
 from serena.constants import (
     DEFAULT_CONTEXT,
     DEFAULT_MODES,
+    DOCKER_CONFIG_DEFAULT_PATH,
     PROMPT_TEMPLATES_DIR_IN_USER_HOME,
     PROMPT_TEMPLATES_DIR_INTERNAL,
     SERENA_LOG_FORMAT,
@@ -31,6 +32,7 @@ from serena.constants import (
     USER_MODE_YAMLS_DIR,
 )
 from serena.mcp import SerenaMCPFactory, SerenaMCPFactorySingleProcess
+from serena.multi_server import AdminServer, MultiServerManager, send_control_command
 from serena.project import Project
 from serena.tools import FindReferencingSymbolsTool, FindSymbolTool, GetSymbolsOverviewTool, SearchForPatternTool, ToolRegistry
 from serena.util.logging import MemoryLogHandler
@@ -236,6 +238,177 @@ class TopLevelCommands(AutoRegisteringGroup):
             print(instr)
         else:
             print(f"{prefix}\n{instr}\n{postfix}")
+
+    @staticmethod
+    @click.command("start-multi-server", help="Start multiple MCP servers, one per registered project (SSE/streamable-http only).")
+    @click.option(
+        "--transport",
+        type=click.Choice(["sse", "streamable-http"]),
+        default="sse",
+        show_default=True,
+        help="Transport protocol (stdio not supported — use docker exec for that).",
+    )
+    @click.option("--base-port", type=int, default=9200, show_default=True, help="Starting port; each project gets base-port + N.")
+    @click.option("--host", type=str, default="0.0.0.0", show_default=True, help="Bind address for all servers.")
+    @click.option(
+        "--projects-dir", type=click.Path(exists=True, file_okay=False), default=None, help="Auto-discover projects in this directory."
+    )
+    @click.option("--context", type=str, default=DEFAULT_CONTEXT, show_default=True, help="Context name passed to each server.")
+    @click.option(
+        "--mode", "modes", type=str, multiple=True, default=DEFAULT_MODES, show_default=True, help="Mode names passed to each server."
+    )
+    @click.option(
+        "--log-level",
+        type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
+        default=None,
+        help="Log level for child servers.",
+    )
+    @click.option("--admin-port", type=int, default=0, help="Port for admin HTTP API (0 = disabled).")
+    def start_multi_server(
+        transport: Literal["sse", "streamable-http"],
+        base_port: int,
+        host: str,
+        projects_dir: str | None,
+        context: str,
+        modes: tuple[str, ...],
+        log_level: str | None,
+        admin_port: int,
+    ) -> None:
+        # Set up logging
+        Logger.root.setLevel(logging.INFO)
+        formatter = logging.Formatter(SERENA_LOG_FORMAT)
+        stderr_handler = logging.StreamHandler(stream=sys.stderr)
+        stderr_handler.formatter = formatter
+        Logger.root.addHandler(stderr_handler)
+        log_path = SerenaPaths().get_next_log_file_path("multi-server")
+        file_handler = logging.FileHandler(log_path, mode="w")
+        file_handler.formatter = formatter
+        Logger.root.addHandler(file_handler)
+
+        log.info("Initializing multi-server manager")
+        log.info("Storing logs in %s", log_path)
+
+        # Collect project paths (lightweight — no full Project initialization)
+        project_paths: list[str] = []
+
+        serena_config = SerenaConfig.from_config_file(generate_if_missing=True)
+        project_paths.extend(serena_config.get_project_paths())
+
+        if projects_dir:
+            discovered = SerenaConfig.discover_projects_in_directory(projects_dir)
+            existing = set(project_paths)
+            for proj_path in discovered:
+                if proj_path not in existing:
+                    project_paths.append(proj_path)
+                    log.info("Adding discovered project: %s", proj_path)
+
+        if not project_paths:
+            click.echo("No projects found. Register projects in ~/.serena/serena_config.yml or use --projects-dir.")
+            sys.exit(1)
+
+        manager = MultiServerManager()
+        for i, proj_path in enumerate(project_paths):
+            proj_name = os.path.basename(proj_path)
+            port = base_port + i
+            manager.add_server(
+                project_name=proj_name,
+                project_path=proj_path,
+                port=port,
+                transport=transport,
+                host=host,
+                context=context,
+                modes=modes,
+                log_level=log_level,
+            )
+
+        admin_server: AdminServer | None = None
+        if admin_port > 0:
+            admin_server = AdminServer(manager, host, admin_port)
+            admin_server.start()
+
+        try:
+            manager.start_all()
+            manager.run_forever()
+        finally:
+            if admin_server:
+                admin_server.stop()
+            manager.shutdown()
+
+
+class MultiServerCommands(AutoRegisteringGroup):
+    """Group for 'multi-server' subcommands to control a running multi-server manager."""
+
+    def __init__(self) -> None:
+        super().__init__(name="multi-server", help="Control a running multi-server manager (status, stop, start, restart).")
+
+    @staticmethod
+    @click.command("status", help="Show status of all servers managed by the multi-server manager.")
+    def status() -> None:
+        data = send_control_command("status")
+        if data is None:
+            click.echo("No multi-server manager is running.")
+            return
+        servers = data.get("servers", [])
+        if not servers:
+            click.echo("No servers registered.")
+            return
+
+        name_w = max(len(s["project_name"]) for s in servers)
+        name_w = max(name_w, 7)
+        header = f"{'Project':<{name_w}}  {'Port':<6}  {'Status':<8}  {'PID':<7}  {'Uptime':<10}  {'Transport'}"
+        click.echo("-" * len(header))
+        click.echo(header)
+        click.echo("-" * len(header))
+        for s in servers:
+            pid_str = str(s["pid"]) if s["pid"] else "-"
+            uptime_s = s.get("uptime_seconds")
+            uptime_str = _format_uptime(uptime_s) if uptime_s is not None else "-"
+            click.echo(f"{s['project_name']:<{name_w}}  {s['port']:<6}  {s['status']:<8}  {pid_str:<7}  {uptime_str:<10}  {s['transport']}")
+        click.echo("-" * len(header))
+
+    @staticmethod
+    @click.command("stop", help="Stop a specific project server.")
+    @click.argument("project_name")
+    def stop(project_name: str) -> None:
+        data = send_control_command("stop", project_name)
+        if data is None:
+            click.echo("No multi-server manager is running.")
+            return
+        click.echo(f"Sent stop command for '{project_name}'.")
+
+    @staticmethod
+    @click.command("start", help="Start a previously stopped project server.")
+    @click.argument("project_name")
+    def start(project_name: str) -> None:
+        data = send_control_command("start", project_name)
+        if data is None:
+            click.echo("No multi-server manager is running.")
+            return
+        click.echo(f"Sent start command for '{project_name}'.")
+
+    @staticmethod
+    @click.command("restart", help="Restart a specific project server.")
+    @click.argument("project_name")
+    def restart(project_name: str) -> None:
+        data = send_control_command("restart", project_name)
+        if data is None:
+            click.echo("No multi-server manager is running.")
+            return
+        click.echo(f"Sent restart command for '{project_name}'.")
+
+
+def _format_uptime(seconds: float | None) -> str:
+    """Format uptime seconds into a human-readable string."""
+    if seconds is None:
+        return "-"
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m {s % 60}s"
+    h = s // 3600
+    m = (s % 3600) // 60
+    return f"{h}h {m}m"
 
 
 class ModeCommands(AutoRegisteringGroup):
@@ -890,6 +1063,106 @@ class PromptCommands(AutoRegisteringGroup):
         click.echo(f"Deleted override file '{prompt_yaml_name}'.")
 
 
+class DockerCommands(AutoRegisteringGroup):
+    """Group for 'docker' subcommands — Docker deployment helpers."""
+
+    def __init__(self) -> None:
+        super().__init__(name="docker", help="Docker deployment helpers (generate docker-compose.yml from config).")
+
+    @staticmethod
+    @click.command("init-config", help="Create a docker.yml template at ~/.serena/docker.yml.")
+    @click.option(
+        "--output",
+        "-o",
+        "dest_path",
+        type=click.Path(),
+        default=DOCKER_CONFIG_DEFAULT_PATH,
+        show_default=True,
+        help="Output path for the template.",
+    )
+    def init_config(dest_path: str) -> None:
+        from serena.docker_compose import init_docker_config
+
+        try:
+            init_docker_config(dest_path)
+            click.echo(f"Created Docker config template: {dest_path}")
+            click.echo("Edit it to add your project paths, then run:")
+            click.echo("  serena docker generate-compose")
+        except FileExistsError:
+            click.echo(f"Config already exists: {dest_path}")
+            click.echo("Edit it directly or delete it first.")
+
+    @staticmethod
+    @click.command("generate-compose", help="Generate docker-compose.yml from ~/.serena/docker.yml.")
+    @click.option(
+        "--config",
+        "config_path",
+        type=click.Path(exists=True),
+        default=None,
+        help=f"Path to docker.yml config (default: {DOCKER_CONFIG_DEFAULT_PATH}).",
+    )
+    @click.option(
+        "--output",
+        "-o",
+        type=click.Path(),
+        default="docker-compose.yml",
+        show_default=True,
+        help="Output path for generated docker-compose.yml.",
+    )
+    @click.option("--dry-run", is_flag=True, help="Print generated YAML to stdout without writing a file.")
+    def generate_compose(config_path: str | None, output: str, dry_run: bool) -> None:
+        from serena.docker_compose import (
+            compose_dict_to_yaml,
+            generate_compose_dict,
+            load_docker_config,
+            resolve_project_mounts,
+            write_compose_file,
+        )
+
+        if config_path is None:
+            config_path = DOCKER_CONFIG_DEFAULT_PATH
+
+        try:
+            config = load_docker_config(config_path)
+        except (FileNotFoundError, ValueError) as e:
+            click.echo(f"Error: {e}", err=True)
+            raise SystemExit(1)
+
+        mounts = resolve_project_mounts(config["projects"])
+        if not mounts:
+            click.echo("Error: No valid project paths found. Check that the directories exist.", err=True)
+            raise SystemExit(1)
+
+        compose = generate_compose_dict(config, mounts)
+
+        if dry_run:
+            click.echo(compose_dict_to_yaml(compose))
+            return
+
+        if os.path.exists(output) and not click.confirm(f"{output} already exists. Overwrite?"):
+            click.echo("Aborted.")
+            return
+
+        write_compose_file(compose, output)
+
+        # Summary table
+        docker = config["docker"]
+        admin_port = int(docker["admin_port"])
+        base_port = int(docker["base_port"])
+        max_port = base_port + len(mounts) - 1 + int(docker["port_headroom"])
+
+        name_w = max(len(name) for _, name in mounts)
+        name_w = max(name_w, 10)
+        click.echo(f"\nGenerated {output} with {len(mounts)} project(s):")
+        for host_path, container_name in mounts:
+            click.echo(f"  {container_name:<{name_w}}  <- {host_path}")
+        ports_str = f"{base_port}-{min(max_port, 65535)} (projects)"
+        if admin_port > 0:
+            ports_str = f"{admin_port} (admin), " + ports_str
+        click.echo(f"Ports: {ports_str}")
+        click.echo(f"\nRun:  docker compose up -d")
+
+
 # Expose groups so we can reference them in pyproject.toml
 mode = ModeCommands()
 context = ContextCommands()
@@ -897,6 +1170,8 @@ project = ProjectCommands()
 config = SerenaConfigCommands()
 tools = ToolCommands()
 prompts = PromptCommands()
+multi_server = MultiServerCommands()
+docker = DockerCommands()
 
 # Expose toplevel commands for the same reason
 top_level = TopLevelCommands()
@@ -904,7 +1179,7 @@ start_mcp_server = top_level.start_mcp_server
 index_project = project.index_deprecated
 
 # needed for the help script to work - register all subcommands to the top-level group
-for subgroup in (mode, context, project, config, tools, prompts):
+for subgroup in (mode, context, project, config, tools, prompts, multi_server, docker):
     top_level.add_command(subgroup)
 
 

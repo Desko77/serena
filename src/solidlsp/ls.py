@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from copy import copy
 from pathlib import Path, PurePath
 from time import sleep
-from typing import Self, Union, cast
+from typing import Any, Self, Union, cast
 
 import pathspec
 from sensai.util.pickle import getstate, load_pickle
@@ -798,6 +798,56 @@ class SolidLanguageServer(ABC):
             ret.append(ls_types.Diagnostic(**new_item))
 
         return ret
+
+    def request_prepare_type_hierarchy(self, relative_file_path: str, line: int, character: int) -> list[dict[str, Any]] | None:
+        """
+        Prepare a type hierarchy request for the symbol at the given position.
+
+        :param relative_file_path: The relative path of the file
+        :param line: The 0-indexed line number
+        :param character: The 0-indexed character position
+        :return: A list of TypeHierarchyItem dicts, or None
+        """
+        if not self.server_started:
+            log.error("request_prepare_type_hierarchy called before Language Server started")
+            raise SolidLSPException("Language Server not started")
+
+        with self.open_file(relative_file_path):
+            response = self.server.send.prepare_type_hierarchy(
+                {
+                    LSPConstants.TEXT_DOCUMENT: {  # type: ignore
+                        LSPConstants.URI: pathlib.Path(str(PurePath(self.repository_root_path, relative_file_path))).as_uri()
+                    },
+                    LSPConstants.POSITION: {  # type: ignore
+                        "line": line,
+                        "character": character,
+                    },
+                }
+            )
+
+        return response  # type: ignore
+
+    def request_type_hierarchy_supertypes(self, params: dict[str, Any]) -> list[dict[str, Any]] | None:
+        """
+        Resolve the supertypes for a given TypeHierarchyItem.
+
+        :param params: Dict with "item" key containing a TypeHierarchyItem
+        :return: A list of TypeHierarchyItem dicts representing supertypes, or None
+        """
+        if not self.server_started:
+            raise SolidLSPException("Language Server not started")
+        return self.server.send.type_hierarchy_supertypes(params)  # type: ignore
+
+    def request_type_hierarchy_subtypes(self, params: dict[str, Any]) -> list[dict[str, Any]] | None:
+        """
+        Resolve the subtypes for a given TypeHierarchyItem.
+
+        :param params: Dict with "item" key containing a TypeHierarchyItem
+        :return: A list of TypeHierarchyItem dicts representing subtypes, or None
+        """
+        if not self.server_started:
+            raise SolidLSPException("Language Server not started")
+        return self.server.send.type_hierarchy_subtypes(params)  # type: ignore
 
     def retrieve_full_file_content(self, file_path: str) -> str:
         """
@@ -1773,7 +1823,33 @@ class SolidLanguageServer(ABC):
 
     def save_cache(self) -> None:
         self._save_raw_document_symbols_cache()
+        # Save stats BEFORE document_symbols_cache (which resets _is_modified flag)
+        self._save_cache_stats()
         self._save_document_symbols_cache()
+
+    def _save_cache_stats(self) -> None:
+        """Write a lightweight cache_stats.json alongside the cache for quick access by admin tools.
+
+        Only writes when the document symbols cache was actually modified, to avoid
+        overwriting valid stats with incomplete data on restart.
+        """
+        if not self._document_symbols_cache_is_modified:
+            return
+
+        import datetime
+
+        stats_file = Path(self.repository_root_path) / self._solidlsp_settings.project_data_relative_path / "cache_stats.json"
+        try:
+            stats: dict[str, Any] = {
+                "indexed_files": len(self._document_symbols_cache),
+                "language": self.language_id,
+                "last_updated": datetime.datetime.now(tz=datetime.UTC).isoformat(),
+            }
+            stats_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(stats_file, "w", encoding="utf-8") as f:
+                json.dump(stats, f, indent=2)
+        except Exception as e:
+            log.debug("Failed to save cache stats: %s", e)
 
     def request_workspace_symbol(self, query: str) -> list[ls_types.UnifiedSymbolInformation] | None:
         """

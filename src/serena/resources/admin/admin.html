@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Serena Multi-Server Admin</title>
+<style>
+:root {
+    --bg: #f5f5f5;
+    --bg-card: #ffffff;
+    --text: #1a1a1a;
+    --text-muted: #666;
+    --border: #e0e0e0;
+    --accent: #4a90d9;
+    --accent-hover: #357abd;
+    --badge-running: #28a745;
+    --badge-stopped: #888;
+    --badge-crashed: #dc3545;
+    --log-bg: #1e1e1e;
+    --log-text: #d4d4d4;
+    --btn-danger: #dc3545;
+    --btn-danger-hover: #c82333;
+    --btn-success: #28a745;
+    --btn-success-hover: #218838;
+    --btn-warning: #fd7e14;
+    --btn-warning-hover: #e8690b;
+    --modal-overlay: rgba(0,0,0,0.4);
+    --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    --stats-bg: #f0f4f8;
+}
+[data-theme="dark"] {
+    --bg: #121212;
+    --bg-card: #1e1e1e;
+    --text: #e0e0e0;
+    --text-muted: #999;
+    --border: #333;
+    --accent: #5ba0e0;
+    --accent-hover: #4a8fd0;
+    --log-bg: #0d0d0d;
+    --log-text: #ccc;
+    --modal-overlay: rgba(0,0,0,0.7);
+    --shadow: 0 2px 8px rgba(0,0,0,0.3);
+    --stats-bg: #252525;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+    line-height: 1.5; padding: 20px; max-width: 1400px; margin: 0 auto;
+}
+header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 16px; padding-bottom: 15px; border-bottom: 2px solid var(--border);
+}
+header h1 { font-size: 1.5rem; font-weight: 600; }
+.header-actions { display: flex; gap: 10px; align-items: center; }
+button {
+    cursor: pointer; border: none; border-radius: 6px; padding: 6px 14px;
+    font-size: 0.85rem; font-weight: 500; transition: background 0.15s;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-sm { padding: 4px 10px; font-size: 0.78rem; }
+.btn-danger { background: var(--btn-danger); color: #fff; }
+.btn-danger:hover { background: var(--btn-danger-hover); }
+.btn-success { background: var(--btn-success); color: #fff; }
+.btn-success:hover { background: var(--btn-success-hover); }
+.btn-warning { background: var(--btn-warning); color: #fff; }
+.btn-warning:hover { background: var(--btn-warning-hover); }
+.btn-outline {
+    background: transparent; border: 1px solid var(--border); color: var(--text);
+}
+.btn-outline:hover { background: var(--border); }
+.theme-toggle {
+    background: none; border: 1px solid var(--border); border-radius: 50%;
+    width: 34px; height: 34px; font-size: 1.1rem; display: flex;
+    align-items: center; justify-content: center; padding: 0;
+}
+
+/* System info bar */
+.system-bar {
+    display: flex; gap: 20px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 16px; padding: 12px 16px;
+    background: var(--bg-card); border-radius: 8px; box-shadow: var(--shadow);
+    font-size: 0.85rem;
+}
+.sys-item { display: flex; align-items: center; gap: 6px; }
+.sys-label { color: var(--text-muted); font-weight: 500; }
+.sys-value { font-weight: 600; }
+.mem-bar-wrap {
+    flex: 1; min-width: 200px; max-width: 400px;
+    height: 18px; background: var(--border); border-radius: 9px; overflow: hidden;
+    position: relative;
+}
+.mem-bar-fill {
+    height: 100%; border-radius: 9px; transition: width 0.3s;
+}
+.mem-bar-text {
+    position: absolute; top: 0; left: 0; right: 0;
+    text-align: center; font-size: 0.72rem; font-weight: 600; line-height: 18px;
+    color: #fff; text-shadow: 0 0 3px rgba(0,0,0,0.5);
+}
+
+table {
+    width: 100%; border-collapse: collapse; background: var(--bg-card);
+    border-radius: 8px; overflow: hidden; box-shadow: var(--shadow);
+}
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+th { font-weight: 600; font-size: 0.82rem; text-transform: uppercase; color: var(--text-muted); background: var(--bg-card); }
+tr:last-child td { border-bottom: none; }
+.badge {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 0.75rem; font-weight: 600; color: #fff; text-transform: uppercase;
+}
+.badge-running { background: var(--badge-running); }
+.badge-stopped { background: var(--badge-stopped); }
+.badge-crashed { background: var(--badge-crashed); }
+.actions { display: flex; gap: 5px; flex-wrap: wrap; }
+.log-panel {
+    background: var(--log-bg); color: var(--log-text); padding: 12px;
+    border-radius: 0 0 8px 8px; margin-top: -1px;
+}
+.log-panel pre {
+    font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+    font-size: 0.78rem; white-space: pre-wrap; word-break: break-all;
+    max-height: 400px; overflow-y: auto; margin: 8px 0 0 0; line-height: 1.4;
+}
+.log-header {
+    display: flex; gap: 10px; align-items: center; margin-bottom: 4px;
+}
+.log-header select {
+    background: #333; color: #ccc; border: 1px solid #555; border-radius: 4px;
+    padding: 3px 8px; font-size: 0.78rem;
+}
+
+/* Stats panel */
+.stats-panel {
+    background: var(--stats-bg); padding: 14px 16px;
+    border-radius: 0 0 8px 8px; margin-top: -1px;
+}
+.stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+}
+.stat-card {
+    background: var(--bg-card); border-radius: 8px; padding: 12px 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.stat-card .stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 2px; }
+.stat-card .stat-value { font-size: 1.3rem; font-weight: 700; }
+.stat-card .stat-detail { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+.stats-loading { color: var(--text-muted); font-style: italic; padding: 10px; }
+
+/* Summary row */
+.summary-row td {
+    font-weight: 600; font-size: 0.85rem; background: var(--stats-bg);
+    border-top: 2px solid var(--border); border-bottom: none;
+}
+
+/* Memory cell coloring */
+.mem-warn { color: var(--btn-warning); }
+.mem-crit { color: var(--btn-danger); font-weight: 600; }
+
+.modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: var(--modal-overlay); z-index: 1000;
+    justify-content: center; align-items: center;
+}
+.modal-overlay.active { display: flex; }
+.modal {
+    background: var(--bg-card); border-radius: 10px; padding: 24px; width: 480px;
+    max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+.modal h2 { margin-bottom: 16px; font-size: 1.2rem; }
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 4px; }
+.form-group input, .form-group select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 6px; font-size: 0.9rem; background: var(--bg); color: var(--text);
+}
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+.empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
+.path-cell { font-family: monospace; font-size: 0.82rem; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.path-cell:hover { white-space: normal; word-break: break-all; }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>Serena Multi-Server Admin</h1>
+    <div class="header-actions">
+        <button class="btn-primary" onclick="openAddModal()">+ Add Project</button>
+        <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn" title="Toggle theme"></button>
+    </div>
+</header>
+
+<div id="systemBar" class="system-bar" style="display:none;"></div>
+
+<div id="serverTable"></div>
+
+<div class="modal-overlay" id="addModal">
+    <div class="modal">
+        <h2>Add Project</h2>
+        <div class="form-group">
+            <label>Available mounted projects</label>
+            <div style="display:flex;gap:6px">
+                <select id="addPathSelect" style="flex:1" onchange="document.getElementById('addPath').value=this.value">
+                    <option value="">-- select or type path below --</option>
+                </select>
+                <button class="btn-outline" onclick="loadAvailableProjects()" title="Refresh list" style="padding:4px 10px">&#x21bb;</button>
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="addPath">Project Path *</label>
+            <input type="text" id="addPath" placeholder="/projects/my_project">
+        </div>
+        <div class="form-group">
+            <label for="addTransport">Transport</label>
+            <select id="addTransport">
+                <option value="">Auto (same as existing)</option>
+                <option value="sse">SSE</option>
+                <option value="streamable-http">Streamable HTTP</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="addContext">Context (optional)</label>
+            <input type="text" id="addContext" placeholder="e.g. desktop-app">
+        </div>
+        <div class="form-group">
+            <label for="addModes">Modes (optional, comma-separated)</label>
+            <input type="text" id="addModes" placeholder="e.g. interactive, editing">
+        </div>
+        <div class="modal-actions">
+            <button class="btn-outline" onclick="closeAddModal()">Cancel</button>
+            <button class="btn-primary" onclick="addProject()">Add</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const API = '/admin/servers';
+let prevJson = '';
+let openLogs = {};    // { name: { type: 'stderr', lines: [] } }
+let openStats = {};   // { name: { loading: bool, data: null|object } }
+let systemStats = null;
+
+// Theme
+function getTheme() {
+    return localStorage.getItem('admin-theme') ||
+        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+function applyTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    document.getElementById('themeBtn').textContent = t === 'dark' ? '\u2600' : '\u263E';
+    localStorage.setItem('admin-theme', t);
+}
+function toggleTheme() {
+    applyTheme(getTheme() === 'dark' ? 'light' : 'dark');
+}
+applyTheme(getTheme());
+
+// Formatting helpers
+function fmtUptime(s) {
+    if (s == null) return '-';
+    s = Math.floor(s);
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
+    return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
+}
+
+function fmtMem(mb) {
+    if (mb == null) return '-';
+    if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+    return mb.toFixed(0) + ' MB';
+}
+
+function memClass(mb) {
+    if (mb == null) return '';
+    if (mb >= 4096) return 'mem-crit';
+    if (mb >= 2048) return 'mem-warn';
+    return '';
+}
+
+function fmtSize(mb) {
+    if (mb == null) return '-';
+    if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+    return mb.toFixed(0) + ' MB';
+}
+
+function fmtNumber(n) {
+    if (n == null) return '-';
+    return n.toLocaleString();
+}
+
+function badgeClass(status) {
+    if (status === 'running') return 'badge-running';
+    if (status === 'crashed') return 'badge-crashed';
+    return 'badge-stopped';
+}
+
+function esc(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// System stats bar
+function renderSystemBar(sys) {
+    if (!sys || !sys.memory || sys.memory.total_mb == null) {
+        document.getElementById('systemBar').style.display = 'none';
+        return;
+    }
+    const m = sys.memory;
+    const pct = m.used_mb != null && m.total_mb > 0 ? Math.round(m.used_mb / m.total_mb * 100) : 0;
+    const barColor = pct > 90 ? 'var(--btn-danger)' : pct > 70 ? 'var(--btn-warning)' : 'var(--badge-running)';
+
+    let html = '';
+    html += '<div class="sys-item"><span class="sys-label">RAM:</span>';
+    html += '<div class="mem-bar-wrap">';
+    html += '<div class="mem-bar-fill" style="width:' + pct + '%;background:' + barColor + '"></div>';
+    html += '<div class="mem-bar-text">' + fmtMem(m.used_mb) + ' / ' + fmtMem(m.total_mb) + ' (' + pct + '%)</div>';
+    html += '</div></div>';
+
+    if (m.available_mb != null) {
+        html += '<div class="sys-item"><span class="sys-label">Available:</span><span class="sys-value">' + fmtMem(m.available_mb) + '</span></div>';
+    }
+    if (sys.cpu_count) {
+        html += '<div class="sys-item"><span class="sys-label">CPUs:</span><span class="sys-value">' + sys.cpu_count + '</span></div>';
+    }
+    if (sys.load_average) {
+        const la = sys.load_average.map(v => v.toFixed(2)).join(' / ');
+        html += '<div class="sys-item"><span class="sys-label">Load:</span><span class="sys-value">' + la + '</span></div>';
+    }
+
+    const bar = document.getElementById('systemBar');
+    bar.innerHTML = html;
+    bar.style.display = 'flex';
+}
+
+// Server table
+function renderTable(servers) {
+    if (!servers.length) {
+        document.getElementById('serverTable').innerHTML =
+            '<div class="empty-state">No servers registered. Click "Add Project" to get started.</div>';
+        return;
+    }
+
+    const COL_COUNT = 9;
+    let totalMem = 0;
+    let memCount = 0;
+
+    let html = '<table><thead><tr>' +
+        '<th>Project</th><th>Path</th><th>Port</th><th>Transport</th>' +
+        '<th>Status</th><th>PID</th><th>Memory</th><th>Uptime</th><th>Actions</th></tr></thead><tbody>';
+
+    for (const s of servers) {
+        const n = s.project_name;
+        const isRunning = s.status === 'running';
+        const isStopped = s.status === 'stopped';
+        const mem = s.memory_rss_mb;
+        if (mem != null) { totalMem += mem; memCount++; }
+
+        html += '<tr><td><strong>' + esc(n) + '</strong></td>';
+        html += '<td class="path-cell" title="' + esc(s.project_path) + '">' + esc(s.project_path) + '</td>';
+        html += '<td>' + s.port + '</td>';
+        html += '<td>' + esc(s.transport) + '</td>';
+        html += '<td><span class="badge ' + badgeClass(s.status) + '">' + esc(s.status) + '</span></td>';
+        html += '<td>' + (s.pid || '-') + '</td>';
+        html += '<td class="' + memClass(mem) + '">' + fmtMem(mem) + '</td>';
+        html += '<td>' + fmtUptime(s.uptime_seconds) + '</td>';
+        html += '<td class="actions">';
+
+        if (isStopped) {
+            html += '<button class="btn-sm btn-success" onclick="serverAction(\'' + esc(n) + '\',\'start\')">Start</button>';
+        }
+        if (isRunning) {
+            html += '<button class="btn-sm btn-warning" onclick="serverAction(\'' + esc(n) + '\',\'stop\')">Stop</button>';
+            html += '<button class="btn-sm btn-outline" onclick="serverAction(\'' + esc(n) + '\',\'restart\')">Restart</button>';
+        }
+        html += '<button class="btn-sm btn-outline" onclick="toggleLogs(\'' + esc(n) + '\')">Logs</button>';
+        html += '<button class="btn-sm btn-outline" onclick="toggleStats(\'' + esc(n) + '\')">Stats</button>';
+        html += '<button class="btn-sm btn-danger" onclick="removeServer(\'' + esc(n) + '\')">Remove</button>';
+        html += '</td></tr>';
+
+        // Stats panel row
+        if (openStats[n]) {
+            html += '<tr><td colspan="' + COL_COUNT + '">';
+            if (openStats[n].loading) {
+                html += '<div class="stats-panel"><div class="stats-loading">Loading stats...</div></div>';
+            } else if (openStats[n].data) {
+                const d = openStats[n].data;
+                html += '<div class="stats-panel"><div class="stats-grid">';
+                if (d.source === 'cache') {
+                    // Cache-based stats (from cache_stats.json — instant)
+                    html += statCard('Indexed Files', fmtNumber(d.indexed_files), d.language ? 'Language: ' + d.language : null);
+                    if (d.bsl) {
+                        html += statCard('Methods', fmtNumber(d.bsl.methods), d.bsl.exported_methods ? 'Exported: ' + fmtNumber(d.bsl.exported_methods) : null);
+                        html += statCard('Modules', fmtNumber(d.bsl.modules), null);
+                        html += statCard('Calls', fmtNumber(d.bsl.calls), d.bsl.unique_calls ? 'Unique: ' + fmtNumber(d.bsl.unique_calls) : null);
+                    }
+                    html += statCard('Memory (tree)', fmtMem(d.memory_tree_rss_mb), 'Process + children');
+                    if (d.last_updated) {
+                        const dt = new Date(d.last_updated);
+                        html += statCard('Last Indexed', dt.toLocaleString(), null);
+                    }
+                } else {
+                    // Filesystem-based stats (os.walk fallback — slow)
+                    html += statCard('Total Files', fmtNumber(d.total_files), null);
+                    html += statCard('Source Files', fmtNumber(d.source_files), fmtExtBreakdown(d.source_by_extension));
+                    html += statCard('Disk Size', fmtSize(d.total_size_mb), null);
+                    html += statCard('Memory (tree)', fmtMem(d.memory_tree_rss_mb), 'Process + children');
+                }
+                html += '</div></div>';
+            }
+            html += '</td></tr>';
+        }
+
+        // Log panel row
+        if (openLogs[n]) {
+            html += '<tr><td colspan="' + COL_COUNT + '"><div class="log-panel">';
+            html += '<div class="log-header">';
+            html += '<select onchange="switchLogType(\'' + esc(n) + '\', this.value)">';
+            html += '<option value="stderr"' + (openLogs[n].type === 'stderr' ? ' selected' : '') + '>stderr</option>';
+            html += '<option value="stdout"' + (openLogs[n].type === 'stdout' ? ' selected' : '') + '>stdout</option>';
+            html += '</select>';
+            html += '<button class="btn-sm btn-outline" onclick="fetchLogs(\'' + esc(n) + '\')">Refresh</button>';
+            html += '</div>';
+            html += '<pre id="log-' + esc(n) + '">' + esc((openLogs[n].lines || []).join('\n') || '(no logs)') + '</pre>';
+            html += '</div></td></tr>';
+        }
+    }
+
+    // Summary row
+    html += '<tr class="summary-row">';
+    html += '<td colspan="6" style="text-align:right">Total (' + servers.length + ' servers):</td>';
+    html += '<td class="' + memClass(totalMem) + '">' + (memCount > 0 ? fmtMem(totalMem) : '-') + '</td>';
+    html += '<td colspan="2"></td>';
+    html += '</tr>';
+
+    html += '</tbody></table>';
+    document.getElementById('serverTable').innerHTML = html;
+}
+
+function statCard(label, value, detail) {
+    let html = '<div class="stat-card"><div class="stat-label">' + esc(label) + '</div>';
+    html += '<div class="stat-value">' + esc(value) + '</div>';
+    if (detail) html += '<div class="stat-detail">' + esc(detail) + '</div>';
+    html += '</div>';
+    return html;
+}
+
+function fmtExtBreakdown(extMap) {
+    if (!extMap || Object.keys(extMap).length === 0) return null;
+    return Object.entries(extMap).map(([ext, cnt]) => ext + ': ' + cnt).join(', ');
+}
+
+// API calls
+async function fetchServers() {
+    try {
+        const r = await fetch(API);
+        const data = await r.json();
+        const j = JSON.stringify(data);
+        if (j !== prevJson) {
+            prevJson = j;
+            renderTable(data);
+        }
+    } catch (e) {
+        console.error('Failed to fetch servers:', e);
+    }
+}
+
+async function fetchSystemStats() {
+    try {
+        const r = await fetch('/admin/system');
+        systemStats = await r.json();
+        renderSystemBar(systemStats);
+    } catch (e) {
+        console.error('Failed to fetch system stats:', e);
+    }
+}
+
+async function serverAction(name, action) {
+    try {
+        const r = await fetch(API + '/' + encodeURIComponent(name) + '/' + action, { method: 'POST' });
+        const data = await r.json();
+        if (!r.ok) alert('Error: ' + (data.error || r.statusText));
+        prevJson = '';
+        fetchServers();
+    } catch (e) {
+        alert('Request failed: ' + e.message);
+    }
+}
+
+async function removeServer(name) {
+    if (!confirm('Remove server "' + name + '"? This will stop it and remove from management.')) return;
+    try {
+        const r = await fetch(API + '/' + encodeURIComponent(name), { method: 'DELETE' });
+        const data = await r.json();
+        if (!r.ok) alert('Error: ' + (data.error || r.statusText));
+        delete openLogs[name];
+        delete openStats[name];
+        prevJson = '';
+        fetchServers();
+    } catch (e) {
+        alert('Request failed: ' + e.message);
+    }
+}
+
+// Logs
+async function fetchLogs(name) {
+    const logState = openLogs[name];
+    if (!logState) return;
+    try {
+        const r = await fetch(API + '/' + encodeURIComponent(name) + '/logs?type=' + logState.type + '&lines=200');
+        const data = await r.json();
+        logState.lines = data.lines || [];
+        const pre = document.getElementById('log-' + name);
+        if (pre) {
+            pre.textContent = logState.lines.join('\n') || '(no logs)';
+            pre.scrollTop = pre.scrollHeight;
+        }
+    } catch (e) {
+        console.error('Failed to fetch logs:', e);
+    }
+}
+
+function toggleLogs(name) {
+    if (openLogs[name]) {
+        delete openLogs[name];
+    } else {
+        openLogs[name] = { type: 'stderr', lines: [] };
+    }
+    prevJson = '';
+    fetchServers();
+    if (openLogs[name]) fetchLogs(name);
+}
+
+function switchLogType(name, type) {
+    if (openLogs[name]) {
+        openLogs[name].type = type;
+        fetchLogs(name);
+    }
+}
+
+// Stats
+async function fetchStats(name) {
+    if (!openStats[name]) return;
+    openStats[name].loading = true;
+    prevJson = '';
+    fetchServers();
+    try {
+        const r = await fetch(API + '/' + encodeURIComponent(name) + '/stats');
+        const data = await r.json();
+        if (openStats[name]) {
+            openStats[name].loading = false;
+            openStats[name].data = data;
+        }
+    } catch (e) {
+        console.error('Failed to fetch stats:', e);
+        if (openStats[name]) openStats[name].loading = false;
+    }
+    prevJson = '';
+    fetchServers();
+}
+
+function toggleStats(name) {
+    if (openStats[name]) {
+        delete openStats[name];
+        prevJson = '';
+        fetchServers();
+    } else {
+        openStats[name] = { loading: true, data: null };
+        prevJson = '';
+        fetchServers();
+        fetchStats(name);
+    }
+}
+
+// Add project modal
+function openAddModal() {
+    document.getElementById('addModal').classList.add('active');
+    loadAvailableProjects();
+}
+function closeAddModal() { document.getElementById('addModal').classList.remove('active'); }
+
+async function loadAvailableProjects() {
+    const sel = document.getElementById('addPathSelect');
+    sel.innerHTML = '<option value="">-- loading... --</option>';
+    try {
+        const r = await fetch('/admin/available-projects');
+        const data = await r.json();
+        sel.innerHTML = '<option value="">-- select or type path below --</option>';
+        for (const p of data) {
+            const opt = document.createElement('option');
+            opt.value = p.path;
+            opt.textContent = p.name + (p.initialized ? '' : ' (not initialised)');
+            sel.appendChild(opt);
+        }
+        if (data.length === 0) {
+            sel.innerHTML = '<option value="">-- no unmounted/unmanaged dirs found --</option>';
+        }
+    } catch (e) {
+        sel.innerHTML = '<option value="">-- failed to load --</option>';
+    }
+}
+
+async function addProject() {
+    const path = document.getElementById('addPath').value.trim();
+    if (!path) { alert('Project path is required'); return; }
+
+    const body = { path: path };
+    const transport = document.getElementById('addTransport').value;
+    if (transport) body.transport = transport;
+    const context = document.getElementById('addContext').value.trim();
+    if (context) body.context = context;
+    const modes = document.getElementById('addModes').value.trim();
+    if (modes) body.modes = modes.split(',').map(m => m.trim()).filter(Boolean);
+
+    try {
+        const r = await fetch(API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await r.json();
+        if (!r.ok) {
+            alert('Error: ' + (data.error || r.statusText));
+            return;
+        }
+        closeAddModal();
+        document.getElementById('addPathSelect').selectedIndex = 0;
+        document.getElementById('addPath').value = '';
+        document.getElementById('addTransport').value = '';
+        document.getElementById('addContext').value = '';
+        document.getElementById('addModes').value = '';
+        prevJson = '';
+        fetchServers();
+    } catch (e) {
+        alert('Request failed: ' + e.message);
+    }
+}
+
+// Close modal on overlay click
+document.getElementById('addModal').addEventListener('click', function(e) {
+    if (e.target === this) closeAddModal();
+});
+
+// Polling
+fetchServers();
+fetchSystemStats();
+setInterval(fetchServers, 3000);
+setInterval(fetchSystemStats, 10000);
+</script>
+
+</body>
+</html>

@@ -1,9 +1,12 @@
 data
 logs
 log
+.venv
 test/log
 docs/jupyter_execute
 docs/.jupyter_cache
 docs/_build
 coverage.xml
 docker_build_and_run.sh
+docker-compose.yml
+docker-compose.example.yml
